@@ -82,6 +82,7 @@ export default function EventsPage() {
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
+                data-spot={t.key === "approval" ? "events-tab-approval" : undefined}
                 className={
                   "group inline-flex items-center gap-2 rounded-lg px-3.5 py-2 text-sm font-medium transition " +
                   (active

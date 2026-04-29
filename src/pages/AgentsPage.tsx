@@ -55,9 +55,11 @@ export default function AgentsPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {AGENTS.map((a) => {
           const Icon = a.icon;
+          const slug = a.name === "Создатель инцидентов" ? "agent-incident-creator" : undefined;
           return (
             <div
               key={a.name}
+              data-spot={slug}
               className="surface-card group relative overflow-hidden p-5 transition hover:-translate-y-0.5 hover:shadow-snackbar"
             >
               <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${a.tone} opacity-50`} />
