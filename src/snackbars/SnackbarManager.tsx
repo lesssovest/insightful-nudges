@@ -516,8 +516,9 @@ export function PageSnackbarManager() {
       e.stopPropagation();
       const selector = buildSelector(el);
       const label = labelForElement(el);
+      const maxOrder = onPage.reduce((m, s) => Math.max(m, s.order ?? 0), 0);
       setFormInitial({
-        ...emptyForm(location.pathname),
+        ...emptyForm(location.pathname, maxOrder + 1),
         targetSelector: selector,
         targetLabel: label,
       });
