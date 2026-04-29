@@ -68,9 +68,12 @@ interface FormState {
   endAt: string;
   autoHideMs: number;
   tone: Snackbar["tone"];
+  preferredSide: NonNullable<Snackbar["preferredSide"]>;
+  offset: { x: number; y: number };
+  order: number;
 }
 
-function emptyForm(pathname: string): FormState {
+function emptyForm(pathname: string, nextOrder = 1): FormState {
   return {
     title: "",
     message: "",
@@ -84,6 +87,9 @@ function emptyForm(pathname: string): FormState {
     endAt: "",
     autoHideMs: 8000,
     tone: "info",
+    preferredSide: "auto",
+    offset: { x: 0, y: 0 },
+    order: nextOrder,
   };
 }
 
