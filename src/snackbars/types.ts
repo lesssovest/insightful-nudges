@@ -16,12 +16,17 @@ export interface Snackbar {
   message: string;
   /** Routes or url-masks. Mask supports `*` wildcard, e.g. `/risks/*` */
   urls: string[];
+  /** CSS-selector of the highlighted element on the page (data-spot="..." preferred). */
+  targetSelector?: string;
+  /** Human-readable label for КМ list (button name, field, etc.) */
+  targetLabel?: string;
   hasMore: boolean;
   moreUrl?: string;
   audience: RoleId[];
   startAt: string; // ISO
   endAt?: string;  // ISO
-  autoHideMs: number; // 0 = no auto-hide
+  /** Per spec: 3000–15000 ms; 0 = manual close only */
+  autoHideMs: number;
   status: SnackbarStatus;
   tone: "info" | "success" | "warning";
   createdAt: string;

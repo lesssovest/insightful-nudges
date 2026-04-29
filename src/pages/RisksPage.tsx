@@ -24,7 +24,7 @@ export default function RisksPage() {
           Связанных мер: 28 · Покрытие: 84%
         </p>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-1.5">
+          <Button variant="outline" size="sm" className="gap-1.5" data-spot="risks-import">
             <Upload className="h-4 w-4" /> Импорт xlsx
           </Button>
           <Button size="sm" className="gap-1.5">

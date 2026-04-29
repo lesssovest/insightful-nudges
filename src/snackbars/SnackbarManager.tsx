@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, X, Trash2, Pencil, Sparkles, Save, Send } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Plus, X, Trash2, Pencil, Sparkles, Save, Send, MousePointer2, Eye } from "lucide-react";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
@@ -27,12 +26,8 @@ import { ROLES, RoleId, Snackbar } from "./types";
 import { useLocation } from "react-router-dom";
 import { toast } from "sonner";
 import { matchUrl } from "./storage";
-
-interface Props {
-  /** When set, the dialog opens in edit mode for this id. */
-  editId?: string;
-  trigger?: React.ReactNode;
-}
+import { buildSelector, labelForElement } from "./selector";
+import { Spotlight } from "./Spotlight";
 
 const TONES = [
   { value: "info", label: "Информация" },
@@ -40,12 +35,14 @@ const TONES = [
   { value: "warning", label: "Важное" },
 ] as const;
 
+// Per spec: 3–15 sec range
 const AUTO_HIDE_OPTIONS = [
-  { value: 0, label: "Не скрывать (только крестик)" },
+  { value: 3000, label: "3 секунды" },
   { value: 5000, label: "5 секунд" },
   { value: 8000, label: "8 секунд" },
   { value: 12000, label: "12 секунд" },
-  { value: 20000, label: "20 секунд" },
+  { value: 15000, label: "15 секунд" },
+  { value: 0, label: "Не скрывать (только крестик)" },
 ];
 
 function toLocalInput(iso?: string) {
@@ -58,382 +55,550 @@ function fromLocalInput(v: string) {
   return v ? new Date(v).toISOString() : "";
 }
 
-export function SnackbarFormDialog({ editId, trigger }: Props) {
-  const { snackbars, upsert } = useSnackbars();
-  const location = useLocation();
-  const [open, setOpen] = useState(false);
+interface FormState {
+  title: string;
+  message: string;
+  urls: string[];
+  targetSelector: string;
+  targetLabel: string;
+  hasMore: boolean;
+  moreUrl: string;
+  audience: RoleId[];
+  startAt: string;
+  endAt: string;
+  autoHideMs: number;
+  tone: Snackbar["tone"];
+}
 
-  const editing: Snackbar | undefined = useMemo(
+function emptyForm(pathname: string): FormState {
+  return {
+    title: "",
+    message: "",
+    urls: [pathname],
+    targetSelector: "",
+    targetLabel: "",
+    hasMore: false,
+    moreUrl: "",
+    audience: ["risk_manager"],
+    startAt: toLocalInput(new Date().toISOString()),
+    endAt: "",
+    autoHideMs: 8000,
+    tone: "info",
+  };
+}
+
+interface FormDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  initial: FormState;
+  editId?: string;
+}
+
+function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogProps) {
+  const { upsert, snackbars } = useSnackbars();
+  const location = useLocation();
+  const [form, setForm] = useState<FormState>(initial);
+  const [previewing, setPreviewing] = useState(false);
+
+  useEffect(() => {
+    if (open) setForm(initial);
+  }, [open, initial]);
+
+  const editing = useMemo(
     () => snackbars.find((s) => s.id === editId),
     [snackbars, editId],
   );
 
-  const [title, setTitle] = useState("");
-  const [message, setMessage] = useState("");
-  const [urls, setUrls] = useState<string[]>([location.pathname]);
-  const [urlDraft, setUrlDraft] = useState("");
-  const [hasMore, setHasMore] = useState(false);
-  const [moreUrl, setMoreUrl] = useState("");
-  const [audience, setAudience] = useState<RoleId[]>(["risk_manager"]);
-  const [startAt, setStartAt] = useState<string>(toLocalInput(new Date().toISOString()));
-  const [endAt, setEndAt] = useState<string>("");
-  const [autoHideMs, setAutoHideMs] = useState(8000);
-  const [tone, setTone] = useState<Snackbar["tone"]>("info");
-
-  useEffect(() => {
-    if (!open) return;
-    if (editing) {
-      setTitle(editing.title);
-      setMessage(editing.message);
-      setUrls(editing.urls);
-      setHasMore(editing.hasMore);
-      setMoreUrl(editing.moreUrl ?? "");
-      setAudience(editing.audience);
-      setStartAt(toLocalInput(editing.startAt));
-      setEndAt(toLocalInput(editing.endAt));
-      setAutoHideMs(editing.autoHideMs);
-      setTone(editing.tone);
-    } else {
-      setTitle("");
-      setMessage("");
-      setUrls([location.pathname]);
-      setHasMore(false);
-      setMoreUrl("");
-      setAudience(["risk_manager"]);
-      setStartAt(toLocalInput(new Date().toISOString()));
-      setEndAt("");
-      setAutoHideMs(8000);
-      setTone("info");
-    }
-    setUrlDraft("");
-  }, [open, editing, location.pathname]);
+  function set<K extends keyof FormState>(k: K, v: FormState[K]) {
+    setForm((p) => ({ ...p, [k]: v }));
+  }
 
   function addUrl(value: string) {
     const v = value.trim();
-    if (!v) return;
-    if (urls.includes(v)) return;
-    setUrls((p) => [...p, v]);
-    setUrlDraft("");
+    if (!v || form.urls.includes(v)) return;
+    set("urls", [...form.urls, v]);
   }
 
   function save(status: "draft" | "published") {
-    if (!title.trim()) return toast.error("Заголовок обязателен");
-    if (!message.trim()) return toast.error("Сообщение обязательно");
-    if (urls.length === 0) return toast.error("Добавьте хотя бы один URL");
-    if (audience.length === 0) return toast.error("Выберите аудиторию");
-    if (!startAt) return toast.error("Укажите дату начала");
-    if (hasMore && !moreUrl.trim()) return toast.error("Заполните ссылку «Подробнее»");
+    if (!form.title.trim()) return toast.error("Заголовок обязателен");
+    if (!form.message.trim()) return toast.error("Сообщение обязательно");
+    if (form.urls.length === 0) return toast.error("Добавьте хотя бы один URL");
+    if (form.audience.length === 0) return toast.error("Выберите аудиторию");
+    if (!form.startAt) return toast.error("Укажите дату начала");
+    if (form.hasMore && !form.moreUrl.trim()) return toast.error("Заполните ссылку «Подробнее»");
 
     upsert({
-      id: editing?.id,
-      title: title.trim().slice(0, 50),
-      message: message.trim().slice(0, 120),
-      urls,
-      hasMore,
-      moreUrl: hasMore ? moreUrl.trim() : undefined,
-      audience,
-      startAt: fromLocalInput(startAt),
-      endAt: endAt ? fromLocalInput(endAt) : undefined,
-      autoHideMs,
+      id: editId,
+      title: form.title.trim().slice(0, 50),
+      message: form.message.trim().slice(0, 120),
+      urls: form.urls,
+      targetSelector: form.targetSelector || undefined,
+      targetLabel: form.targetLabel || undefined,
+      hasMore: form.hasMore,
+      moreUrl: form.hasMore ? form.moreUrl.trim() : undefined,
+      audience: form.audience,
+      startAt: fromLocalInput(form.startAt),
+      endAt: form.endAt ? fromLocalInput(form.endAt) : undefined,
+      autoHideMs: form.autoHideMs,
       status,
-      tone,
+      tone: form.tone,
     });
-    toast.success(editing ? "Снекбар обновлён" : status === "published" ? "Снекбар опубликован" : "Сохранён в черновики");
-    setOpen(false);
+    toast.success(
+      editing ? "Снекбар обновлён" : status === "published" ? "Снекбар опубликован" : "Сохранён в черновики",
+    );
+    onOpenChange(false);
   }
 
-  const matchingPreview = urls.filter((u) => matchUrl(u, location.pathname)).length > 0;
+  const previewSnackbar: Snackbar = {
+    id: "preview",
+    title: form.title || "Заголовок снекбара",
+    message: form.message || "Так будет выглядеть сообщение для пользователя.",
+    urls: form.urls,
+    targetSelector: form.targetSelector,
+    targetLabel: form.targetLabel,
+    hasMore: form.hasMore,
+    moreUrl: form.moreUrl,
+    audience: form.audience,
+    startAt: new Date().toISOString(),
+    autoHideMs: 0,
+    status: "draft",
+    tone: form.tone,
+    createdAt: new Date().toISOString(),
+    authorName: "Контент-менеджер",
+  };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {trigger ?? (
-          <Button size="sm" className="gap-1.5">
-            <Plus className="h-4 w-4" /> Снекбар
-          </Button>
-        )}
-      </DialogTrigger>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-thin">
-        <DialogHeader>
-          <DialogTitle className="font-display">
-            {editing ? "Редактирование снекбара" : "Новый снекбар"}
-          </DialogTitle>
-          <DialogDescription>
-            Уведомление будет показано пользователям с подходящей ролью при первом
-            посещении указанных страниц.
-          </DialogDescription>
-        </DialogHeader>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto scrollbar-thin">
+          <DialogHeader>
+            <DialogTitle className="font-display">
+              {editing ? "Редактирование снекбара" : "Новый снекбар"}
+            </DialogTitle>
+            <DialogDescription>
+              Снекбар подсветит элемент рамкой и затемнит остальной интерфейс. Покажется один раз каждому пользователю с подходящей ролью.
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="grid gap-5 py-2">
-          <div className="grid gap-2">
-            <Label>Заголовок <span className="text-destructive">*</span></Label>
-            <Input
-              maxLength={50}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Например: Новый AI-агент по инцидентам"
-            />
-            <p className="text-xs text-muted-foreground">{title.length}/50</p>
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Сообщение <span className="text-destructive">*</span></Label>
-            <Textarea
-              maxLength={120}
-              rows={3}
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Краткое описание изменения, до 120 символов"
-            />
-            <p className="text-xs text-muted-foreground">{message.length}/120</p>
-          </div>
-
-          <div className="grid gap-2">
-            <Label>
-              URL страницы <span className="text-destructive">*</span>
-              <span className="ml-2 text-xs font-normal text-muted-foreground">
-                поддерживается маска: <code className="rounded bg-muted px-1">/risks/*</code>
-              </span>
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                value={urlDraft}
-                onChange={(e) => setUrlDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addUrl(urlDraft);
-                  }
-                }}
-                placeholder="/events или /risks/*"
-              />
-              <Button type="button" variant="secondary" onClick={() => addUrl(urlDraft)}>
-                Добавить
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => addUrl(location.pathname)}
-                title="Добавить текущий путь"
-              >
-                Текущий
-              </Button>
+          <div className="grid gap-5 py-2">
+            {/* Target preview */}
+            <div className="rounded-lg border border-info/30 bg-info/5 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <MousePointer2 className="h-4 w-4 text-info shrink-0" />
+                  <p className="text-sm font-medium truncate">
+                    {form.targetLabel || "Без привязки к элементу"}
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setPreviewing(true)}
+                  className="gap-1.5"
+                >
+                  <Eye className="h-3.5 w-3.5" /> Предпросмотр
+                </Button>
+              </div>
+              {form.targetSelector && (
+                <code className="mt-1.5 block break-all text-[11px] text-muted-foreground">
+                  {form.targetSelector}
+                </code>
+              )}
             </div>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {urls.map((u) => (
-                <Badge key={u} variant="secondary" className="gap-1.5 pl-2.5 pr-1.5 py-1">
-                  <code className="text-xs">{u}</code>
-                  <button
-                    onClick={() => setUrls((p) => p.filter((x) => x !== u))}
-                    className="rounded-sm p-0.5 hover:bg-background"
-                    aria-label="Удалить URL"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </Badge>
-              ))}
-            </div>
-            {matchingPreview && (
-              <p className="text-xs text-primary">
-                ✓ Сработает на текущей странице ({location.pathname})
-              </p>
-            )}
-          </div>
 
-          <div className="grid gap-3 rounded-lg border border-border bg-secondary/40 p-3">
-            <label className="flex items-center gap-2.5 cursor-pointer">
-              <Checkbox
-                checked={hasMore}
-                onCheckedChange={(v) => setHasMore(Boolean(v))}
-              />
-              <span className="text-sm font-medium">Кнопка «Подробнее»</span>
-            </label>
-            {hasMore && (
-              <Input
-                value={moreUrl}
-                onChange={(e) => setMoreUrl(e.target.value)}
-                placeholder="https://docs.example.com/changelog/..."
-              />
-            )}
-          </div>
-
-          <div className="grid gap-2">
-            <Label>Кому показывать <span className="text-destructive">*</span></Label>
-            <div className="flex flex-wrap gap-2">
-              {ROLES.map((r) => {
-                const active = audience.includes(r.id);
-                return (
-                  <button
-                    type="button"
-                    key={r.id}
-                    onClick={() =>
-                      setAudience((p) =>
-                        active ? p.filter((x) => x !== r.id) : [...p, r.id],
-                      )
-                    }
-                    className={
-                      "rounded-full border px-3 py-1.5 text-xs font-medium transition " +
-                      (active
-                        ? "border-primary bg-primary text-primary-foreground"
-                        : "border-border bg-card text-foreground hover:border-primary/50")
-                    }
-                  >
-                    {r.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
             <div className="grid gap-2">
-              <Label>Дата начала <span className="text-destructive">*</span></Label>
+              <Label>Заголовок <span className="text-destructive">*</span></Label>
               <Input
-                type="datetime-local"
-                value={startAt}
-                onChange={(e) => setStartAt(e.target.value)}
+                maxLength={50}
+                value={form.title}
+                onChange={(e) => set("title", e.target.value)}
+                placeholder="Например: Новая вкладка «На утверждение»"
               />
+              <p className="text-xs text-muted-foreground">{form.title.length}/50</p>
             </div>
+
             <div className="grid gap-2">
-              <Label>Дата окончания</Label>
-              <Input
-                type="datetime-local"
-                value={endAt}
-                onChange={(e) => setEndAt(e.target.value)}
+              <Label>Сообщение <span className="text-destructive">*</span></Label>
+              <Textarea
+                maxLength={120}
+                rows={3}
+                value={form.message}
+                onChange={(e) => set("message", e.target.value)}
+                placeholder="Краткое описание изменения, до 120 символов"
               />
+              <p className="text-xs text-muted-foreground">{form.message.length}/120</p>
+            </div>
+
+            <UrlsField urls={form.urls} addUrl={addUrl} removeUrl={(u) => set("urls", form.urls.filter((x) => x !== u))} pathname={location.pathname} />
+
+            <div className="grid gap-3 rounded-lg border border-border bg-secondary/40 p-3">
+              <label className="flex items-center gap-2.5 cursor-pointer">
+                <Checkbox
+                  checked={form.hasMore}
+                  onCheckedChange={(v) => set("hasMore", Boolean(v))}
+                />
+                <span className="text-sm font-medium">Кнопка «Подробнее»</span>
+              </label>
+              {form.hasMore && (
+                <Input
+                  value={form.moreUrl}
+                  onChange={(e) => set("moreUrl", e.target.value)}
+                  placeholder="https://docs.example.com/changelog/..."
+                />
+              )}
+            </div>
+
+            <div className="grid gap-2">
+              <Label>Кому показывать <span className="text-destructive">*</span></Label>
+              <div className="flex flex-wrap gap-2">
+                {ROLES.map((r) => {
+                  const active = form.audience.includes(r.id);
+                  return (
+                    <button
+                      type="button"
+                      key={r.id}
+                      onClick={() =>
+                        set(
+                          "audience",
+                          active
+                            ? form.audience.filter((x) => x !== r.id)
+                            : [...form.audience, r.id],
+                        )
+                      }
+                      className={
+                        "rounded-full border px-3 py-1.5 text-xs font-medium transition " +
+                        (active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-card text-foreground hover:border-primary/50")
+                      }
+                    >
+                      {r.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Дата начала <span className="text-destructive">*</span></Label>
+                <Input type="datetime-local" value={form.startAt} onChange={(e) => set("startAt", e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label>Дата окончания</Label>
+                <Input type="datetime-local" value={form.endAt} onChange={(e) => set("endAt", e.target.value)} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-2">
+                <Label>Автоскрытие (3–15 сек)</Label>
+                <Select
+                  value={String(form.autoHideMs)}
+                  onValueChange={(v) => set("autoHideMs", Number(v))}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {AUTO_HIDE_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={String(o.value)}>
+                        {o.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid gap-2">
+                <Label>Тип</Label>
+                <Select value={form.tone} onValueChange={(v: Snackbar["tone"]) => set("tone", v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {TONES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="grid gap-2">
-              <Label>Автоскрытие</Label>
-              <Select
-                value={String(autoHideMs)}
-                onValueChange={(v) => setAutoHideMs(Number(v))}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {AUTO_HIDE_OPTIONS.map((o) => (
-                    <SelectItem key={o.value} value={String(o.value)}>
-                      {o.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid gap-2">
-              <Label>Тип</Label>
-              <Select value={tone} onValueChange={(v: Snackbar["tone"]) => setTone(v)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {TONES.map((t) => (
-                    <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </div>
+          <DialogFooter className="gap-2 sm:gap-2">
+            <Button variant="outline" onClick={() => save("draft")} className="gap-1.5">
+              <Save className="h-4 w-4" /> В черновик
+            </Button>
+            <Button onClick={() => save("published")} className="gap-1.5">
+              <Send className="h-4 w-4" /> Опубликовать
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" onClick={() => save("draft")} className="gap-1.5">
-            <Save className="h-4 w-4" /> В черновик
-          </Button>
-          <Button onClick={() => save("published")} className="gap-1.5">
-            <Send className="h-4 w-4" /> Опубликовать
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      {previewing && (
+        <Spotlight snackbar={previewSnackbar} onClose={() => setPreviewing(false)} />
+      )}
+    </>
   );
 }
 
-/** Compact list of snackbars matching current route — for content managers. */
+function UrlsField({
+  urls,
+  addUrl,
+  removeUrl,
+  pathname,
+}: {
+  urls: string[];
+  addUrl: (v: string) => void;
+  removeUrl: (v: string) => void;
+  pathname: string;
+}) {
+  const [draft, setDraft] = useState("");
+  return (
+    <div className="grid gap-2">
+      <Label>
+        URL страницы <span className="text-destructive">*</span>
+        <span className="ml-2 text-xs font-normal text-muted-foreground">
+          поддерживается маска: <code className="rounded bg-muted px-1">/risks/*</code>
+        </span>
+      </Label>
+      <div className="flex gap-2">
+        <Input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              addUrl(draft);
+              setDraft("");
+            }
+          }}
+          placeholder="/events или /risks/*"
+        />
+        <Button type="button" variant="secondary" onClick={() => { addUrl(draft); setDraft(""); }}>
+          Добавить
+        </Button>
+        <Button type="button" variant="outline" onClick={() => addUrl(pathname)} title="Добавить текущий путь">
+          Текущий
+        </Button>
+      </div>
+      <div className="flex flex-wrap gap-2 pt-1">
+        {urls.map((u) => (
+          <Badge key={u} variant="secondary" className="gap-1.5 pl-2.5 pr-1.5 py-1">
+            <code className="text-xs">{u}</code>
+            <button onClick={() => removeUrl(u)} className="rounded-sm p-0.5 hover:bg-background" aria-label="Удалить URL">
+              <X className="h-3 w-3" />
+            </button>
+          </Badge>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * КМ control bar:
+ * - "Добавить снекбар" кнопка → pick mode → клик по элементу → форма
+ * - Список существующих снекбаров для текущей страницы (CRUD)
+ */
 export function PageSnackbarManager() {
   const { snackbars, archive, remove, user } = useSnackbars();
   const location = useLocation();
   const isCM = user.roles.includes("content_manager");
 
+  const [picking, setPicking] = useState(false);
+  const [hoverEl, setHoverEl] = useState<Element | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [formInitial, setFormInitial] = useState<FormState>(emptyForm(location.pathname));
+  const [editId, setEditId] = useState<string | undefined>(undefined);
+  const lastEl = useRef<Element | null>(null);
+
   const onPage = snackbars.filter((s) =>
     s.urls.some((u) => matchUrl(u, location.pathname)),
   );
 
+  // Pick mode: highlight hovered element + capture click
+  useEffect(() => {
+    if (!picking) {
+      document.body.removeAttribute("data-cm-pick");
+      return;
+    }
+    document.body.setAttribute("data-cm-pick", "on");
+
+    const onMove = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      if (!el) return;
+      // ignore our own picker UI
+      if (el.closest("[data-cm-ui]")) {
+        setHoverEl(null);
+        return;
+      }
+      setHoverEl(el);
+      lastEl.current = el;
+    };
+    const onClick = (e: MouseEvent) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      if (!el || el.closest("[data-cm-ui]")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const selector = buildSelector(el);
+      const label = labelForElement(el);
+      setFormInitial({
+        ...emptyForm(location.pathname),
+        targetSelector: selector,
+        targetLabel: label,
+      });
+      setEditId(undefined);
+      setPicking(false);
+      setHoverEl(null);
+      setFormOpen(true);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setPicking(false);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("click", onClick, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("click", onClick, true);
+      document.removeEventListener("keydown", onKey);
+      document.body.removeAttribute("data-cm-pick");
+    };
+  }, [picking, location.pathname]);
+
   if (!isCM) return null;
 
+  const hoverRect = hoverEl?.getBoundingClientRect();
+
   return (
-    <div className="surface-card p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-primary" />
-          <h3 className="font-display text-sm font-semibold">
-            Снекбары на этой странице
-          </h3>
-          <span className="pill bg-secondary text-muted-foreground">{onPage.length}</span>
-        </div>
-        <SnackbarFormDialog />
+    <>
+      {/* Floating "Add snackbar" button — visible only to КМ */}
+      <div
+        data-cm-ui
+        className="fixed bottom-6 right-6 z-40 flex items-center gap-2"
+      >
+        {picking ? (
+          <button
+            onClick={() => setPicking(false)}
+            className="surface-card flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-info text-info hover:bg-info/10"
+          >
+            <X className="h-4 w-4" /> Отменить выбор
+          </button>
+        ) : (
+          <button
+            onClick={() => setPicking(true)}
+            className="flex items-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground shadow-snackbar transition hover:bg-primary-hover"
+          >
+            <Plus className="h-4 w-4" /> Добавить снекбар
+          </button>
+        )}
       </div>
 
-      {onPage.length === 0 ? (
-        <p className="mt-3 text-sm text-muted-foreground">
-          Пока нет снекбаров для пути <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{location.pathname}</code>.
-          Создайте первый — он подсветится у пользователей, заходящих сюда впервые.
-        </p>
-      ) : (
-        <ul className="mt-3 divide-y divide-border">
-          {onPage.map((s) => (
-            <li key={s.id} className="flex items-start justify-between gap-3 py-3 first:pt-1 last:pb-0">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium">{s.title}</p>
-                  <StatusBadge status={s.status} />
+      {/* Picker hover ring */}
+      {picking && hoverRect && (
+        <div
+          data-cm-ui
+          className="pointer-events-none fixed z-[55] rounded animate-pulse-ring"
+          style={{
+            top: hoverRect.top - 4,
+            left: hoverRect.left - 4,
+            width: hoverRect.width + 8,
+            height: hoverRect.height + 8,
+            border: "2px solid hsl(var(--info))",
+          }}
+        />
+      )}
+      {picking && (
+        <div
+          data-cm-ui
+          className="fixed left-1/2 top-6 z-[55] -translate-x-1/2 rounded-full bg-foreground px-4 py-2 text-xs font-medium text-background shadow-snackbar"
+        >
+          Кликните по любому элементу страницы (Esc — отмена)
+        </div>
+      )}
+
+      {/* Existing snackbars list */}
+      <div className="surface-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <h3 className="font-display text-sm font-semibold">
+              Снекбары на этой странице
+            </h3>
+            <span className="pill bg-secondary text-muted-foreground">{onPage.length}</span>
+          </div>
+        </div>
+
+        {onPage.length === 0 ? (
+          <p className="mt-3 text-sm text-muted-foreground">
+            Пока нет снекбаров для пути <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{location.pathname}</code>.
+            Нажмите «Добавить снекбар» в правом нижнем углу и выберите элемент, который нужно подсветить.
+          </p>
+        ) : (
+          <ul className="mt-3 divide-y divide-border">
+            {onPage.map((s) => (
+              <li key={s.id} className="flex items-start justify-between gap-3 py-3 first:pt-1 last:pb-0">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-medium">{s.title}</p>
+                    <StatusBadge status={s.status} />
+                  </div>
+                  <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                    {s.message}
+                  </p>
+                  {s.targetLabel && (
+                    <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-info">
+                      <MousePointer2 className="h-3 w-3" /> {s.targetLabel}
+                    </p>
+                  )}
                 </div>
-                <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
-                  {s.message}
-                </p>
-                <div className="mt-1.5 flex flex-wrap gap-1.5">
-                  {s.urls.map((u) => (
-                    <code
-                      key={u}
-                      className="rounded bg-muted px-1.5 py-0.5 text-[11px] text-muted-foreground"
-                    >
-                      {u}
-                    </code>
-                  ))}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-1">
-                <SnackbarFormDialog
-                  editId={s.id}
-                  trigger={
-                    <Button variant="ghost" size="icon" aria-label="Редактировать">
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                  }
-                />
-                {s.status !== "archived" && (
+                <div className="flex shrink-0 items-center gap-1">
                   <Button
                     variant="ghost"
-                    size="sm"
-                    className="text-xs"
-                    onClick={() => archive(s.id)}
+                    size="icon"
+                    aria-label="Редактировать"
+                    onClick={() => {
+                      setFormInitial({
+                        title: s.title,
+                        message: s.message,
+                        urls: s.urls,
+                        targetSelector: s.targetSelector ?? "",
+                        targetLabel: s.targetLabel ?? "",
+                        hasMore: s.hasMore,
+                        moreUrl: s.moreUrl ?? "",
+                        audience: s.audience,
+                        startAt: toLocalInput(s.startAt),
+                        endAt: toLocalInput(s.endAt),
+                        autoHideMs: s.autoHideMs,
+                        tone: s.tone,
+                      });
+                      setEditId(s.id);
+                      setFormOpen(true);
+                    }}
                   >
-                    В архив
+                    <Pencil className="h-4 w-4" />
                   </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  aria-label="Удалить"
-                  onClick={() => remove(s.id)}
-                >
-                  <Trash2 className="h-4 w-4 text-destructive" />
-                </Button>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+                  {s.status !== "archived" && (
+                    <Button variant="ghost" size="sm" className="text-xs" onClick={() => archive(s.id)}>
+                      В архив
+                    </Button>
+                  )}
+                  <Button variant="ghost" size="icon" aria-label="Удалить" onClick={() => remove(s.id)}>
+                    <Trash2 className="h-4 w-4 text-destructive" />
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <SnackbarFormDialog
+        open={formOpen}
+        onOpenChange={setFormOpen}
+        initial={formInitial}
+        editId={editId}
+      />
+    </>
   );
 }
 
