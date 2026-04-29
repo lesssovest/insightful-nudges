@@ -645,6 +645,9 @@ export function PageSnackbarManager() {
                         endAt: toLocalInput(s.endAt),
                         autoHideMs: s.autoHideMs,
                         tone: s.tone,
+                        preferredSide: s.preferredSide ?? "auto",
+                        offset: s.offset ?? { x: 0, y: 0 },
+                        order: s.order ?? 1,
                       });
                       setEditId(s.id);
                       setFormOpen(true);
