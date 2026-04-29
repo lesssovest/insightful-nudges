@@ -332,6 +332,63 @@ function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogP
                 </Select>
               </div>
             </div>
+
+            {/* Position + order */}
+            <div className="grid gap-3 rounded-lg border border-border bg-secondary/30 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Положение карточки</Label>
+                <span className="text-[11px] text-muted-foreground">или перетащите в режиме предпросмотра</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(["auto", "top", "right", "bottom", "left"] as const).map((side) => {
+                  const active = form.preferredSide === side;
+                  const labels = { auto: "Авто", top: "Сверху", right: "Справа", bottom: "Снизу", left: "Слева" } as const;
+                  return (
+                    <button
+                      key={side}
+                      type="button"
+                      onClick={() => {
+                        set("preferredSide", side);
+                        set("offset", { x: 0, y: 0 });
+                      }}
+                      className={
+                        "rounded-md border px-2.5 py-1 text-xs font-medium transition " +
+                        (active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-card hover:border-primary/50")
+                      }
+                    >
+                      {labels[side]}
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.offset.x !== 0 || form.offset.y !== 0) && (
+                <div className="flex items-center justify-between gap-2 rounded-md bg-info/5 px-2 py-1.5 text-[11px] text-info">
+                  <span>Смещение от перетаскивания: x {form.offset.x}px, y {form.offset.y}px</span>
+                  <button
+                    type="button"
+                    onClick={() => set("offset", { x: 0, y: 0 })}
+                    className="rounded px-1.5 py-0.5 text-info underline hover:bg-info/10"
+                  >
+                    сбросить
+                  </button>
+                </div>
+              )}
+              <div className="grid grid-cols-[auto,1fr] items-center gap-3">
+                <Label className="text-xs">Очерёдность</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.order}
+                  onChange={(e) => set("order", Math.max(1, Number(e.target.value) || 1))}
+                  className="h-9 w-24"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Если на странице несколько снекбаров — пользователь увидит их по возрастанию очерёдности с кнопкой «Далее».
+              </p>
+            </div>
           </div>
 
           <DialogFooter className="gap-2 sm:gap-2">
@@ -346,7 +403,13 @@ function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogP
       </Dialog>
 
       {previewing && (
-        <Spotlight snackbar={previewSnackbar} onClose={() => setPreviewing(false)} />
+        <Spotlight
+          snackbar={previewSnackbar}
+          onClose={() => setPreviewing(false)}
+          draggable
+          onOffsetChange={(o) => set("offset", o)}
+          onSideChange={(s) => set("preferredSide", s)}
+        />
       )}
     </>
   );
