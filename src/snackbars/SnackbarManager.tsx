@@ -68,9 +68,12 @@ interface FormState {
   endAt: string;
   autoHideMs: number;
   tone: Snackbar["tone"];
+  preferredSide: NonNullable<Snackbar["preferredSide"]>;
+  offset: { x: number; y: number };
+  order: number;
 }
 
-function emptyForm(pathname: string): FormState {
+function emptyForm(pathname: string, nextOrder = 1): FormState {
   return {
     title: "",
     message: "",
@@ -84,6 +87,9 @@ function emptyForm(pathname: string): FormState {
     endAt: "",
     autoHideMs: 8000,
     tone: "info",
+    preferredSide: "auto",
+    offset: { x: 0, y: 0 },
+    order: nextOrder,
   };
 }
 
@@ -142,6 +148,9 @@ function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogP
       autoHideMs: form.autoHideMs,
       status,
       tone: form.tone,
+      preferredSide: form.preferredSide,
+      offset: form.offset.x === 0 && form.offset.y === 0 ? undefined : form.offset,
+      order: form.order,
     });
     toast.success(
       editing ? "Снекбар обновлён" : status === "published" ? "Снекбар опубликован" : "Сохранён в черновики",
@@ -165,6 +174,9 @@ function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogP
     tone: form.tone,
     createdAt: new Date().toISOString(),
     authorName: "Контент-менеджер",
+    preferredSide: form.preferredSide,
+    offset: form.offset,
+    order: form.order,
   };
 
   return (
@@ -320,6 +332,63 @@ function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogP
                 </Select>
               </div>
             </div>
+
+            {/* Position + order */}
+            <div className="grid gap-3 rounded-lg border border-border bg-secondary/30 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">Положение карточки</Label>
+                <span className="text-[11px] text-muted-foreground">или перетащите в режиме предпросмотра</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(["auto", "top", "right", "bottom", "left"] as const).map((side) => {
+                  const active = form.preferredSide === side;
+                  const labels = { auto: "Авто", top: "Сверху", right: "Справа", bottom: "Снизу", left: "Слева" } as const;
+                  return (
+                    <button
+                      key={side}
+                      type="button"
+                      onClick={() => {
+                        set("preferredSide", side);
+                        set("offset", { x: 0, y: 0 });
+                      }}
+                      className={
+                        "rounded-md border px-2.5 py-1 text-xs font-medium transition " +
+                        (active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "border-border bg-card hover:border-primary/50")
+                      }
+                    >
+                      {labels[side]}
+                    </button>
+                  );
+                })}
+              </div>
+              {(form.offset.x !== 0 || form.offset.y !== 0) && (
+                <div className="flex items-center justify-between gap-2 rounded-md bg-info/5 px-2 py-1.5 text-[11px] text-info">
+                  <span>Смещение от перетаскивания: x {form.offset.x}px, y {form.offset.y}px</span>
+                  <button
+                    type="button"
+                    onClick={() => set("offset", { x: 0, y: 0 })}
+                    className="rounded px-1.5 py-0.5 text-info underline hover:bg-info/10"
+                  >
+                    сбросить
+                  </button>
+                </div>
+              )}
+              <div className="grid grid-cols-[auto,1fr] items-center gap-3">
+                <Label className="text-xs">Очерёдность</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  value={form.order}
+                  onChange={(e) => set("order", Math.max(1, Number(e.target.value) || 1))}
+                  className="h-9 w-24"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Если на странице несколько снекбаров — пользователь увидит их по возрастанию очерёдности с кнопкой «Далее».
+              </p>
+            </div>
           </div>
 
           <DialogFooter className="gap-2 sm:gap-2">
@@ -334,7 +403,13 @@ function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogP
       </Dialog>
 
       {previewing && (
-        <Spotlight snackbar={previewSnackbar} onClose={() => setPreviewing(false)} />
+        <Spotlight
+          snackbar={previewSnackbar}
+          onClose={() => setPreviewing(false)}
+          draggable
+          onOffsetChange={(o) => set("offset", o)}
+          onSideChange={(s) => set("preferredSide", s)}
+        />
       )}
     </>
   );
@@ -441,8 +516,9 @@ export function PageSnackbarManager() {
       e.stopPropagation();
       const selector = buildSelector(el);
       const label = labelForElement(el);
+      const maxOrder = onPage.reduce((m, s) => Math.max(m, s.order ?? 0), 0);
       setFormInitial({
-        ...emptyForm(location.pathname),
+        ...emptyForm(location.pathname, maxOrder + 1),
         targetSelector: selector,
         targetLabel: label,
       });
@@ -570,6 +646,9 @@ export function PageSnackbarManager() {
                         endAt: toLocalInput(s.endAt),
                         autoHideMs: s.autoHideMs,
                         tone: s.tone,
+                        preferredSide: s.preferredSide ?? "auto",
+                        offset: s.offset ?? { x: 0, y: 0 },
+                        order: s.order ?? 1,
                       });
                       setEditId(s.id);
                       setFormOpen(true);

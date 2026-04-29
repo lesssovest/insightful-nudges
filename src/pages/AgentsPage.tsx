@@ -55,7 +55,12 @@ export default function AgentsPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {AGENTS.map((a) => {
           const Icon = a.icon;
-          const slug = a.name === "Создатель инцидентов" ? "agent-incident-creator" : undefined;
+          const slug =
+            a.name === "Создатель инцидентов"
+              ? "agent-incident-creator"
+              : a.name === "Аналитик"
+                ? "agent-analyst"
+                : undefined;
           return (
             <div
               key={a.name}

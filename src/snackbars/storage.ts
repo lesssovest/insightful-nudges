@@ -1,7 +1,7 @@
 import { Snackbar, CurrentUser, RoleId } from "./types";
 
-const SB_KEY = "rf.snackbars.v2";
-const SEEN_KEY = "rf.snackbars.seen.v2";
+const SB_KEY = "rf.snackbars.v3";
+const SEEN_KEY = "rf.snackbars.seen.v3";
 const USER_KEY = "rf.user.v1";
 
 export function loadSnackbars(): Snackbar[] {
