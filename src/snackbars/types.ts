@@ -20,6 +20,12 @@ export interface Snackbar {
   targetSelector?: string;
   /** Human-readable label for КМ list (button name, field, etc.) */
   targetLabel?: string;
+  /** Preferred side of the card relative to the highlighted element. `auto` — выбирает сама система. */
+  preferredSide?: "auto" | "right" | "left" | "top" | "bottom";
+  /** Manual offset (px) added to the auto-position — задаётся перетаскиванием карточки в режиме КМ. */
+  offset?: { x: number; y: number };
+  /** Очерёдность показа внутри одной страницы (1, 2, 3...). Меньше — раньше. */
+  order?: number;
   hasMore: boolean;
   moreUrl?: string;
   audience: RoleId[];
