@@ -132,10 +132,23 @@
 }
 
 @keyframes snackbar-in {
-  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  from { opacity: 0; transform: translateY(8px) scale(0.97); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes snackbar-out {
   to { opacity: 0; transform: translateY(8px) scale(0.98); }
 }
-.animate-snackbar-in { animation: snackbar-in 320ms cubic-bezier(0.22, 1, 0.36, 1); }
+.animate-snackbar-in { animation: snackbar-in 280ms cubic-bezier(0.22, 1, 0.36, 1); }
+
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 2px hsl(var(--info) / 0.25), 0 0 24px hsl(var(--info) / 0.45); }
+  50%      { box-shadow: 0 0 0 6px hsl(var(--info) / 0.18), 0 0 36px hsl(var(--info) / 0.55); }
+}
+.animate-pulse-ring { animation: pulse-ring 2s ease-in-out infinite; }
+
+/* КМ режим — подсветка кликабельных элементов при выборе */
+[data-cm-pick="on"] *:hover {
+  outline: 2px dashed hsl(var(--info));
+  outline-offset: 2px;
+  cursor: crosshair !important;
+}
