@@ -148,6 +148,9 @@ function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogP
       autoHideMs: form.autoHideMs,
       status,
       tone: form.tone,
+      preferredSide: form.preferredSide,
+      offset: form.offset.x === 0 && form.offset.y === 0 ? undefined : form.offset,
+      order: form.order,
     });
     toast.success(
       editing ? "Снекбар обновлён" : status === "published" ? "Снекбар опубликован" : "Сохранён в черновики",
@@ -171,6 +174,9 @@ function SnackbarFormDialog({ open, onOpenChange, initial, editId }: FormDialogP
     tone: form.tone,
     createdAt: new Date().toISOString(),
     authorName: "Контент-менеджер",
+    preferredSide: form.preferredSide,
+    offset: form.offset,
+    order: form.order,
   };
 
   return (
